@@ -1,0 +1,16 @@
+{
+  "name": "code",
+  "version": "1.0.0",
+  "description": "This project is about building a personal AI assistant using the OpenAI API. The assistant will integrate functionalities like ChatGPT for conversation, DALL·E for image generation, and Whisper for voice recognition. It will also connect to the internet for real-time information retrieval.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
