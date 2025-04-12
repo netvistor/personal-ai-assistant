@@ -1,11 +1,7 @@
 require('dotenv').config();
+const TelegramBotWrapper = require('./services/telegram.bot');
 
-const TelegramBot = require('node-telegram-bot-api');
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
+// Inicjalizacja bota
+new TelegramBotWrapper();
 
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-    const textMessage = msg.text;
-
-    bot.sendMessage(chatId, `Otrzymałem tekst: ${textMessage}`);
-});
+console.log('🤖 Bot został uruchomiony...');
