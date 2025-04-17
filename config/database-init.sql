@@ -32,3 +32,16 @@ CREATE TABLE IF NOT EXISTS sessions (
 ALTER TABLE conversations
 ADD COLUMN session_id VARCHAR(36),
 ADD INDEX idx_session (session_id);
+
+ALTER TABLE conversations
+ADD COLUMN has_image BOOLEAN DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS images (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  conversation_id INT,
+  file_id VARCHAR(255),
+  file_path VARCHAR(255),
+  analysis TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
