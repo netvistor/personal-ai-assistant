@@ -45,3 +45,16 @@ CREATE TABLE IF NOT EXISTS images (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (conversation_id) REFERENCES conversations(id)
 );
+
+ALTER TABLE conversations
+ADD COLUMN has_audio BOOLEAN DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS audio (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  conversation_id INT,
+  file_id VARCHAR(255),
+  file_path VARCHAR(255),
+  transcription TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);

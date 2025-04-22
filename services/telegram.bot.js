@@ -3,6 +3,9 @@ const OpenAIService = require('./openai.service');
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const fetch = require("node-fetch");
+const fs = require('fs');
+const FormData = require('form-data');
+const path = require('path');
 
 class TelegramBotWrapper {
   constructor() {
@@ -17,55 +20,71 @@ class TelegramBotWrapper {
     // Inicjalizacja bazy danych
     await this.initializeDatabase();
     
-    this.bot.onText(/\/model (.+)/, async (msg, match) => {
-      const chatId = msg.chat.id;
-      const modelName = match[1].toLowerCase();
-      
-      if (this.aiService.getSupportedModels().includes(modelName)) {
-        this.userSettings.set(chatId, { model: modelName });
-        this.bot.sendMessage(chatId, `✅ Model zmieniony na: ${modelName}`);
-      } else {
-        const availableModels = this.aiService.getSupportedModels().join(', ');
-        this.bot.sendMessage(chatId, `❌ Nieobsługiwany model. Dostępne opcje:\n${availableModels}`);
-      }
-    });
-
-    // Nowa komenda do ustawienia długości historii
-    this.bot.onText(/\/history_length (\d+)/, async (msg, match) => {
+      this.bot.onText(/\/model (.+)/, async (msg, match) => {
         const chatId = msg.chat.id;
-        const length = parseInt(match[1]);
+        const modelName = match[1].toLowerCase();
         
-        if (length > 0 && length <= 20) {
-            await db.query(
-            'UPDATE users SET history_length = ? WHERE chat_id = ?',
-            [length, chatId]
-            );
-            this.bot.sendMessage(chatId, `✅ Pamięć konwersacji ustawiona na ${length} ostatnich wiadomości`);
+        if (this.aiService.getSupportedModels().includes(modelName)) {
+          this.userSettings.set(chatId, { model: modelName });
+          this.bot.sendMessage(chatId, `✅ Model zmieniony na: ${modelName}`);
         } else {
-            this.bot.sendMessage(chatId, '❌ Nieprawidłowa wartość. Podaj liczbę między 1 a 20');
+          const availableModels = this.aiService.getSupportedModels().join(', ');
+          this.bot.sendMessage(chatId, `❌ Nieobsługiwany model. Dostępne opcje:\n${availableModels}`);
         }
-    });
+      });
 
-    // Komenda do rozpoczynania nowej sesji
-    this.bot.onText(/\/new_session/, async (msg) => {
+      // Nowa komenda do ustawienia długości historii
+      this.bot.onText(/\/history_length (\d+)/, async (msg, match) => {
+          const chatId = msg.chat.id;
+          const length = parseInt(match[1]);
+          
+          if (length > 0 && length <= 20) {
+              await db.query(
+              'UPDATE users SET history_length = ? WHERE chat_id = ?',
+              [length, chatId]
+              );
+              this.bot.sendMessage(chatId, `✅ Pamięć konwersacji ustawiona na ${length} ostatnich wiadomości`);
+          } else {
+              this.bot.sendMessage(chatId, '❌ Nieprawidłowa wartość. Podaj liczbę między 1 a 20');
+          }
+      });
+
+      // Komenda do rozpoczynania nowej sesji
+      this.bot.onText(/\/new_session/, async (msg) => {
+          const chatId = msg.chat.id;
+          const sessionId = uuidv4();
+          await this.createNewSession(chatId, sessionId);
+          this.bot.sendMessage(chatId, '🔄 Rozpoczęto nową sesję konwersacyjną');
+      });
+
+      // Obsługa komendy /models
+      this.bot.onText(/\/models/, (msg) => {
         const chatId = msg.chat.id;
-        const sessionId = uuidv4();
-        await this.createNewSession(chatId, sessionId);
-        this.bot.sendMessage(chatId, '🔄 Rozpoczęto nową sesję konwersacyjną');
-    });
+        const modelsList = this.aiService.getSupportedModels()
+          .map(m => `• ${m}`)
+          .join('\n');
+        this.bot.sendMessage(chatId, `📚 Dostępne modele:\n${modelsList}`);
+      });
 
-    // Obsługa komendy /models
-    this.bot.onText(/\/models/, (msg) => {
-      const chatId = msg.chat.id;
-      const modelsList = this.aiService.getSupportedModels()
-        .map(m => `• ${m}`)
-        .join('\n');
-      this.bot.sendMessage(chatId, `📚 Dostępne modele:\n${modelsList}`);
-    });
+      this.bot.on('note', async (msg) => {
+        const chatId = msg.chat.id;
+        console.log('Note command received:', msg);
+        this.bot.sendMessage(chatId, `👋 Note przesłane`)
+      });
+    
+      // Obsługa wiadomości głosowych
+      this.bot.on('voice', async (msg) => {
+        console.log('Voice received:', msg);
+        await this.processVoiceMessage(msg);
+      });
+    
 
     // Obsługa zwykłych wiadomości
     this.bot.on('message', async (msg) => {
-      // if (msg.text.startsWith('/')) return;
+      if (!msg.text || msg.text.startsWith('/')) return;
+      console.log('Message received:', msg);
+      await this.processMessage(msg);
+      /*
       if (!msg.text || msg.text.startsWith('/')) return;
 
       const chatId = msg.chat.id;
@@ -94,25 +113,26 @@ class TelegramBotWrapper {
         console.error('Processing error:', error);
         this.bot.sendMessage(chatId, `❌ Błąd: ${error.message}`);
       }
+      */
     });
 
-      // Obsługa komendy /vision
-      this.bot.onText(/\/vision (.+)/, async (msg, match) => {
-        const chatId = msg.chat.id;
-        const prompt = match[1];
-        
-        if (msg.reply_to_message && msg.reply_to_message.photo) {
-          await this.processImage(chatId, msg.reply_to_message, prompt);
-        } else {
-          this.bot.sendMessage(chatId, '❌ Odpowiedz na zdjęcie komendą /vision <prompt>');
-        }
-      });
-  
-      // Obsługa zwykłych zdjęć
-      this.bot.on('photo', async (msg) => {
-        const chatId = msg.chat.id;
-        this.bot.sendMessage(chatId, '🖼 Otrzymałem zdjęcie! Użyj komendy /vision <prompt> odpowiadając na to zdjęcie, aby je przeanalizować.');
-      });
+    // Obsługa komendy /vision
+    this.bot.onText(/\/vision (.+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      const prompt = match[1];
+      
+      if (msg.reply_to_message && msg.reply_to_message.photo) {
+        await this.processImage(chatId, msg.reply_to_message, prompt);
+      } else {
+        this.bot.sendMessage(chatId, '❌ Odpowiedz na zdjęcie komendą /vision <prompt>');
+      }
+    });
+
+    // Obsługa zwykłych zdjęć
+    this.bot.on('photo', async (msg) => {
+      const chatId = msg.chat.id;
+      this.bot.sendMessage(chatId, '🖼 Otrzymałem zdjęcie! Użyj komendy /vision <prompt> odpowiadając na to zdjęcie, aby je przeanalizować.');
+    });
 
     // end of setupHandlers
   }
@@ -125,6 +145,39 @@ class TelegramBotWrapper {
     this.bot.sendMessage(chatId, message);
   }
 
+  async processMessage(msg)
+  {
+    if (!msg.text || msg.text.startsWith('/')) return;
+
+    const chatId = msg.chat.id;
+    // const userSettings = this.userSettings.get(chatId) || {};
+    const user = await this.getOrCreateUser(chatId, msg.from.username);
+    const sessionId = await this.getCurrentSessionId(user.id);
+
+    console.log('user.current_model', user.current_model);
+
+    try {
+      // Pobierz historię konwersacji
+      const history = await this.getConversationHistory(user.id, sessionId, user.history_length);
+      
+      // Generuj odpowiedź z pamięcią kontekstu
+      const response = await this.aiService.generateResponse(
+          [...history, { role: 'user', content: msg.text }],
+          {
+              model: user.current_model,
+              historyLength: user.history_length
+          }
+      );
+
+      // Zapisz konwersację
+      await this.saveConversation(user.id, sessionId, msg.text, response);
+      
+      this.sendResponse(chatId, response.content);
+    } catch (error) {
+      console.error('Processing error:', error);
+      this.bot.sendMessage(chatId, `❌ Błąd: ${error.message}`);
+    }
+  }
   async initializeDatabase() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -340,6 +393,75 @@ class TelegramBotWrapper {
   checkSignature(buffer, expectedBytes, length) {
     const signature = Buffer.from(expectedBytes);
     return buffer.slice(0, length).equals(signature);
+  }
+
+  async processVoiceMessage(msg) {
+    const chatId = msg.chat.id;
+    const tempDir = './temp_audio';
+    const model = 'whisper-1';
+
+    try {
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir);
+      }
+
+      const fileId = msg.voice.file_id;
+      const fileInfo = await this.bot.getFile(fileId);
+      const audioUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_TOKEN}/${fileInfo.file_path}`;
+      
+      // Pobierz plik
+      const response = await fetch(audioUrl);
+      const buffer = await response.buffer();
+      const oggPath = path.join(tempDir, `${fileId}.ogg`);
+      fs.writeFileSync(oggPath, buffer);
+
+      // Konwertuj do MP3
+      const mp3Path = path.join(tempDir, `${fileId}.mp3`);
+      await this.aiService.convertAudio(oggPath, mp3Path);
+
+      // Transkrybuj
+      const transcription = await this.aiService.transcribeAudio(mp3Path, model);
+
+      // Zapisz do bazy
+      await this.saveAudioToDatabase(fileId, fileInfo.file_path, mp3Path, transcription, model, chatId, msg);
+
+      
+      this.sendResponse(chatId, `🎤 Transkrypcja:\n${transcription.text}`);
+      
+      msg.text = transcription.text;
+      console.log('msg.text z voice', msg.text);
+      await this.processMessage(msg);
+
+    } catch (error) {
+      console.error('Voice processing error:', error);
+      this.bot.sendMessage(chatId, `❌ Błąd: ${error.message}`);
+    } finally {
+      this.cleanTempFiles(tempDir);
+    }
+  }
+
+  async saveAudioToDatabase(fileId, originalPath, convertedPath, transcription, model, chatId, msg) {
+      
+    const user = await this.getOrCreateUser(chatId, msg.from.username);
+    const sessionId = await this.getCurrentSessionId(user.id);
+
+    const conversationResult = await db.query(
+      `INSERT INTO conversations 
+        (user_id, message, response, model_used, tokens_used, has_image, compilation_id, session_id, has_audio) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+      [user.id, originalPath, transcription.text, model, 0 , false, chatId, sessionId]
+    );
+    //transcription.segments[0].tokens
+    await db.query(
+      `INSERT INTO audio 
+        (conversation_id, file_id, file_path, transcription)
+        VALUES (?, ?, ?, ?)`,
+      [conversationResult.id, fileId, convertedPath, transcription.text]
+    );
+  }
+
+  cleanTempFiles(dir) {
+    // ... czyszczenie plików tymczasowych ...
   }
 
 }
