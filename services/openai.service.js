@@ -1,6 +1,25 @@
 const OpenAI = require("openai");
 const { encode } = require("gpt-3-encoder");
 const fetch = require("node-fetch");
+// const { FFmpeg } = require('@ffmpeg/ffmpeg');
+// const { fetchFile } = require('@ffmpeg/util');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+const fs = require('fs');
+
+
+const { createFFmpeg, fetchFile } = import('@ffmpeg/ffmpeg');
+
+// let ffmpegInstance;
+
+// async function initFFmpeg() {
+//   ffmpegInstance = createFFmpeg({ log: true });
+//   await ffmpegInstance.load();
+// }
+
+// initFFmpeg().then(() => {
+//   // Teraz ffmpegInstance jest gotowy do użycia
+// });
 
 class OpenAIService {
   constructor() {
@@ -10,12 +29,12 @@ class OpenAIService {
 
     // Dostępne modele i ich domyślne parametry
     this.supportedModels = {
-      "gpt-4": {
-        maxTokens: 8192,
-        temperature: 0.7,
-      },
       "gpt-3.5-turbo": {
         maxTokens: 4096,
+        temperature: 0.7,
+      },
+      "gpt-4": {
+        maxTokens: 8192,
         temperature: 0.7,
       },
       "gpt-4-turbo": {
@@ -27,6 +46,11 @@ class OpenAIService {
         temperature: 0.7,
       },
     };
+
+
+    ffmpeg.setFfmpegPath(ffmpegPath);
+    // this.ffmpeg = new FFmpeg();
+    // this.initializeFFmpeg();
   }
 
   async generateResponse(conversationHistory, options = {}) {
@@ -45,7 +69,7 @@ class OpenAIService {
     const systemMessage = {
       role: "system",
       content:
-        "Jesteś pomocnym asystentem. Odpowiadaj w języku użytkownika. Bądź precyzyjny i rzeczowy. Dzisiaj mamy dzień " +
+        "Jesteś pomocnym asystentem o imieniu Zora. Odpowiadaj w języku użytkownika. Bądź precyzyjny i rzeczowy. Dzisiaj mamy dzień " +
         new Date().toLocaleDateString("pl-PL", {
           year: "numeric",
           month: "2-digit",
@@ -144,12 +168,41 @@ class OpenAIService {
 
   async downloadAndConvertImage(fileUrl) {
     try {
+      console.log("Downloading image from URL:", fileUrl);
       const response = await fetch(fileUrl);
+      console.log("Response status:", response);
       const buffer = await response.buffer();
       return `data:image/jpeg;base64,${buffer.toString("base64")}`;
     } catch (error) {
       console.error("Image processing error:", error);
       throw new Error("Błąd przetwarzania obrazu");
+    }
+  }
+
+  async convertAudio(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .audioCodec('libmp3lame')
+        .toFormat('mp3')
+        .on('end', () => resolve(outputPath))
+        .on('error', (err) => reject(err))
+        .save(outputPath);
+    });
+  }
+
+  async transcribeAudio(filePath, model = "whisper-1") {
+    try {
+      const file = fs.createReadStream(filePath);
+      const transcription = await this.client.audio.transcriptions.create({
+        file: file,
+        model: model,
+        response_format: "verbose_json",
+      });
+
+      return transcription;
+    } catch (error) {
+      console.error('Transcription error:', error);
+      throw new Error('Błąd transkrypcji audio');
     }
   }
 }
