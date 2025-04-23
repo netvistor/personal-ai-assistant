@@ -96,8 +96,6 @@ class OpenAIService {
         tool_choice: 'auto',
       });
 
-      console.log('completion:', JSON.stringify(completion));
-      
       const responseMessage = completion.choices[0].message;
       const toolCalls = responseMessage.tool_calls;
 
@@ -110,26 +108,13 @@ class OpenAIService {
             functionName,
             functionArgs
           );
-
-          /*
-          messages.push({
-            role: 'tool',
-            name: functionName,
-            content: JSON.stringify(result),
-            tool_call_id: toolCall.id
-          });
-          */
-          console.log("web_search:", result);
-          // messages.push(JSON.stringify(result));
-          // messages.push(result.answer);
           
           return {
-            content: result.html, // .answer
+            content: result.html,
             model: model,
             tokensUsed: completion.usage.total_tokens,
             id: completion.id,
           };
-
         }
 
         return this.generateResponse(messages, options);
@@ -144,106 +129,6 @@ class OpenAIService {
     } catch (error) {
       console.error("OpenAI API Error:", error);
       throw new Error(`Błąd API OpenAI: ${error.message}`);
-    }
-  }
-
-  async generateResponseNew(conversationHistory, options = {}) {
-    const model = options.model || "gpt-3.5-turbo";
-    const maxHistoryLength = options.historyLength || 5;
-    const functionDefinitions = functionHandler.getFunctionDefinitions();
-
-    if (!this.supportedModels[model]) {
-      throw new Error(`Model ${model} nie jest obsługiwany`);
-    }
-
-    const modelConfig = {
-      ...this.supportedModels[model],
-      ...options,
-    };
-
-    const systemMessage = {
-      role: "system",
-      content:
-        "Jesteś pomocnym asystentem o imieniu Zora. Odpowiadaj w języku użytkownika. Bądź precyzyjny i rzeczowy. Dzisiaj mamy dzień " +
-        new Date().toLocaleDateString("pl-PL", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          weekday: "long",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: false,
-          timeZone: "Europe/Warsaw",
-        }) +
-        `Kontekst: ostatnie ${maxHistoryLength} wiadomości. `
-        + `Dostępne funkcje: ${JSON.stringify(functionDefinitions)}`,
-    };
-    // console.log(`Dostępne funkcje: ${JSON.stringify(functionDefinitions)}`);
-
-    const messages = [
-      systemMessage,
-      ...conversationHistory.slice(-maxHistoryLength * 2),
-    ];
-
-    // const usedTokens = this.countTokens(messages); // np. 90
-    const maxTokens = 1000; //modelConfig.maxTokens - usedTokens;
-
-    try {
-      const completion = await this.client.chat.completions.create({
-        model: model,
-        messages: messages,
-        temperature: modelConfig.temperature,
-        max_tokens: maxTokens,
-        // tools: functionDefinitions.map(def => ({
-        //   type: 'function',
-        //   function: def
-        // })),
-        tool_choice: 'auto',
-        temperature: 0.7,
-      });
-
-      console.log('completion:', completion);
-
-      const responseMessage = completion.choices[0].message;
-      // const toolCalls = responseMessage.tool_calls;
-      // console.log("Tool calls:", toolCalls);
-      // console.log("Response message:", responseMessage);
-      // console.log("Response content:", responseMessage.content);
-
-      if (!responseMessage.content) {
-        throw new Error("Invalid response: 'content' is null or undefined.");
-      }
-
-      // if (toolCalls) {
-      //   for (const toolCall of toolCalls) {
-      //     const functionName = toolCall.function.name;
-      //     const functionArgs = JSON.parse(toolCall.function.arguments);
-          
-      //     const result = await functionHandler.executeFunction(
-      //       functionName,
-      //       functionArgs
-      //     );
-
-      //     messages.push({
-      //       role: 'tool',
-      //       name: functionName,
-      //       content: JSON.stringify(result),
-      //       tool_call_id: toolCall.id
-      //     });
-      //   }
-      // }
-
-      return {
-        content: responseMessage.content, // completion.choices[0].message.content,
-        model: model,
-        tokensUsed: completion.usage.total_tokens,
-        id: completion.id,
-      };
-    } catch (error) {
-      console.error("OpenAI API Error:", error);
-      // throw new Error(`Błąd API OpenAI: ${error.message}`);
-      throw new Error(`Błąd API OpenAI`);
     }
   }
 
@@ -291,7 +176,6 @@ class OpenAIService {
                 type: "input_image",
                 image_url: `${imageUrl}`,
               },
-              
             ],
           },
         ],

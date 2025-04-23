@@ -173,8 +173,6 @@ class TelegramBotWrapper {
           inline_keyboard: welcomeMessage.buttons
         }
       });
-      
-      // this.sendResponse(process.env.ADMIN_CHAT_ID, message);
 
       // Logowanie zdarzenia
       console.log(`New user started: ${user.username || user.id}`);
@@ -349,13 +347,6 @@ class TelegramBotWrapper {
   }
 
   async saveConversation(userId, sessionId, message, response) {
-
-    // if (typeof response === 'object') {
-    //   if (response.content.results) response = JSON.stringify(response.content.results);
-    // }
-    // console.log('Response:', response);
-    // console.log('Message:', message);
-
     await db.query(
       `INSERT INTO conversations 
        (user_id, session_id, message, response, model_used, tokens_used)
@@ -505,7 +496,6 @@ class TelegramBotWrapper {
       // Zapisz do bazy
       await this.saveAudioToDatabase(fileId, fileInfo.file_path, mp3Path, transcription, model, chatId, msg);
 
-      
       this.sendResponse(chatId, `🎤 Transkrypcja:\n${transcription.text}`);
       
       msg.text = transcription.text;

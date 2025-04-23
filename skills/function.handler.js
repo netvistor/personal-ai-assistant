@@ -35,22 +35,3 @@ module.exports = {
     return await availableFunctions[name].execute(args);
   }
 };
-
-/*
-export const tools = [
-    {
-      name: "search_web",
-      description: "Wyszukaj informacje w internecie",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Zapytanie wyszukiwania"
-          }
-        },
-        required: ["query"]
-      }
-    }
-];
-*/
