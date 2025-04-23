@@ -13,6 +13,7 @@ class TelegramBotWrapper {
     this.aiService = new OpenAIService();
     this.userSettings = new Map(); // Przechowuje ustawienia per użytkownik
     this.setupHandlers();
+    this.setupWelcomeHandler();
   }
 
   async setupHandlers() {
@@ -53,7 +54,9 @@ class TelegramBotWrapper {
       this.bot.onText(/\/new_session/, async (msg) => {
           const chatId = msg.chat.id;
           const sessionId = uuidv4();
-          await this.createNewSession(chatId, sessionId);
+          const user = await this.getOrCreateUser(chatId, msg.from.username);
+
+          await this.createNewSession(user.id, sessionId);
           this.bot.sendMessage(chatId, '🔄 Rozpoczęto nową sesję konwersacyjną');
       });
 
@@ -68,7 +71,6 @@ class TelegramBotWrapper {
 
       this.bot.on('note', async (msg) => {
         const chatId = msg.chat.id;
-        console.log('Note command received:', msg);
         this.bot.sendMessage(chatId, `👋 Note przesłane`)
       });
     
@@ -82,38 +84,8 @@ class TelegramBotWrapper {
     // Obsługa zwykłych wiadomości
     this.bot.on('message', async (msg) => {
       if (!msg.text || msg.text.startsWith('/')) return;
-      console.log('Message received:', msg);
+      
       await this.processMessage(msg);
-      /*
-      if (!msg.text || msg.text.startsWith('/')) return;
-
-      const chatId = msg.chat.id;
-      const userSettings = this.userSettings.get(chatId) || {};
-      const user = await this.getOrCreateUser(chatId, msg.from.username);
-      const sessionId = await this.getCurrentSessionId(user.id);
-
-      try {
-        // Pobierz historię konwersacji
-        const history = await this.getConversationHistory(user.id, sessionId, user.history_length);
-        
-        // Generuj odpowiedź z pamięcią kontekstu
-        const response = await this.aiService.generateResponse(
-            [...history, { role: 'user', content: msg.text }],
-            {
-                model: user.current_model,
-                historyLength: user.history_length
-            }
-        );
-
-        // Zapisz konwersację
-        await this.saveConversation(user.id, sessionId, msg.text, response);
-        
-        this.sendResponse(chatId, response.content);
-      } catch (error) {
-        console.error('Processing error:', error);
-        this.bot.sendMessage(chatId, `❌ Błąd: ${error.message}`);
-      }
-      */
     });
 
     // Obsługa komendy /vision
@@ -137,12 +109,113 @@ class TelegramBotWrapper {
     // end of setupHandlers
   }
 
+  setupWelcomeHandler() {
+    this.bot.onText(/\/start/, async (msg) => {
+      await this.initialMessage(msg.chat.id, msg.from);
+    });
+  }
+
+  async initialMessage(chatId, form) {
+
+    try {
+      /*
+      const message = `Wita! Jestem Zora, Twój Asystent AI 🤖
+        Aplikacja integruje się z Telegramem, umożliwiając zaawansowaną interakcję z użytkownikami za pomocą bota. Oto podsumowanie jej możliwości:
+        Obsługa Komend Tekstowych:
+
+        \/models: Wyświetla listę dostępnych modeli AI, które mogą być używane do generowania odpowiedzi.
+        \/model <nazwa_modelu>: Pozwala użytkownikowi zmienić model AI używany do generowania odpowiedzi.
+        \/history_length <liczba>: Ustawia długość historii konwersacji, która jest uwzględniana podczas generowania odpowiedzi.
+        \/new_session: Rozpoczyna nową sesję konwersacyjną, resetując kontekst.
+        Obsługa Wiadomości Głosowych:
+
+        Bot pobiera wiadomości głosowe, konwertuje je na tekst za pomocą modelu transkrypcji (np. Whisper), a następnie przetwarza je jako zwykłe wiadomości tekstowe.
+        Obsługa Obrazów:
+
+        Użytkownicy mogą przesyłać zdjęcia i analizować je za pomocą komendy \/vision <prompt>, odpowiadając na przesłane zdjęcie. Bot analizuje obraz i generuje odpowiedź na podstawie podanego promptu.
+        Obsługa Zwykłych Wiadomości:
+
+        Bot przetwarza wiadomości tekstowe, generując odpowiedzi na podstawie historii konwersacji i wybranego modelu AI.
+        Obsługa Notatek:
+
+        Komenda note pozwala użytkownikowi przesyłać notatki, które są potwierdzane przez bota.
+        Obsługa Zdjęć:
+
+        Bot informuje użytkownika o możliwości analizy zdjęcia za pomocą komendy \/vision.
+        Zarządzanie Sesjami i Historią:
+
+        Bot przechowuje historię konwersacji w bazie danych, umożliwiając generowanie odpowiedzi z uwzględnieniem kontekstu.
+        Obsługuje wiele sesji dla różnych użytkowników.
+        Integracja z Bazą Danych:
+
+        Przechowuje dane użytkowników, historię konwersacji, transkrypcje audio oraz analizy obrazów w bazie danych.
+        Bezpieczeństwo i Walidacja:
+
+        Waliduje formaty plików (np. obrazy) oraz ogranicza długość wiadomości i historii konwersacji.
+        Aplikacja jest wszechstronna i umożliwia interakcję z użytkownikami Telegrama w sposób dynamiczny, wykorzystując zaawansowane funkcje AI do analizy tekstu, głosu i obrazów.`;
+      */
+
+      const chatId = msg.chat.id;
+      const sessionId = uuidv4();
+
+      await this.createNewSession(chatId, sessionId);
+      
+      // Rejestracja nowego użytkownika
+      const user = await this.getOrCreateUser(chatId, form.username);
+
+      // Spersonalizowana wiadomość powitalna
+      const welcomeMessage = await this.generateWelcomeMessage(user);
+      
+      // Wysłanie wiadomości z przyciskami
+      await this.bot.sendMessage(chatId, welcomeMessage.text, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: welcomeMessage.buttons
+        }
+      });
+      
+      // this.sendResponse(process.env.ADMIN_CHAT_ID, message);
+
+      // Logowanie zdarzenia
+      console.log(`New user started: ${user.username || user.id}`);
+    } catch (error) {
+      console.error('Welcome error:', error);
+      this.bot.sendMessage(chatId, '👋 Witaj! Dziękujemy za skorzystanie z naszego bota.');
+    }
+  }
+
+  async generateWelcomeMessage(user) {
+    const userName = user.first_name || 'użytkowniku';
+    const currentDate = new Date().toLocaleDateString('pl-PL');
+    
+    return {
+      text: `*👋 Witaj ${userName}!*\n\nJestem Zora, Twój asystent AI. Dziś jest ${currentDate}\n\nCo mogę dla Ciebie zrobić?`,
+      buttons: [
+        [
+          { text: '🔍 Wyszukaj w sieci', callback_data: 'search_web' },
+          { text: '🎤 Notatka głosowa', callback_data: 'voice_note' }
+        ],
+        [
+          { text: 'ℹ️ Pomoc', callback_data: 'help' },
+          { text: '⚙️ Ustawienia', callback_data: 'settings' }
+        ]
+      ]
+    };
+  }
+
   sendResponse(chatId, message) {
-    // Telegram ma limit 4096 znaków na wiadomość
+    if (typeof message !== 'string') {
+      console.error('Invalid message:', message);
+      message = String(message ?? ''); // zamienia null/undefined na pusty string
+    }
+      
     if (message.length > 4096) {
       message = message.substring(0, 4093) + '...';
     }
-    this.bot.sendMessage(chatId, message);
+
+    this.bot.sendMessage(chatId, message, {
+      parse_mode: 'HTML'
+    });
   }
 
   async processMessage(msg)
@@ -150,11 +223,8 @@ class TelegramBotWrapper {
     if (!msg.text || msg.text.startsWith('/')) return;
 
     const chatId = msg.chat.id;
-    // const userSettings = this.userSettings.get(chatId) || {};
     const user = await this.getOrCreateUser(chatId, msg.from.username);
     const sessionId = await this.getCurrentSessionId(user.id);
-
-    console.log('user.current_model', user.current_model);
 
     try {
       // Pobierz historię konwersacji
@@ -178,6 +248,7 @@ class TelegramBotWrapper {
       this.bot.sendMessage(chatId, `❌ Błąd: ${error.message}`);
     }
   }
+
   async initializeDatabase() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -208,13 +279,14 @@ class TelegramBotWrapper {
       'SELECT * FROM users WHERE chat_id = ?', 
       [chatId]
     );
-
+    
     if (!user) {
       const [result] = await db.query(
         'INSERT INTO users (chat_id, username) VALUES (?, ?)',
         [chatId, username]
       );
-      return { id: result.insertId, chat_id: chatId, current_model: 'gpt-4' };
+    
+      return { id: result.insertId, chat_id: chatId, current_model: 'gpt-3.5-turbo' };
     }
 
     return user;
@@ -257,6 +329,7 @@ class TelegramBotWrapper {
       SELECT 'assistant' as role, response as content, created_at 
       FROM conversations 
       WHERE user_id = ? AND session_id = ?
+      AND response IS NOT NULL
      ) AS combined
      ORDER BY created_at DESC
      LIMIT ?`;
@@ -276,6 +349,13 @@ class TelegramBotWrapper {
   }
 
   async saveConversation(userId, sessionId, message, response) {
+
+    // if (typeof response === 'object') {
+    //   if (response.content.results) response = JSON.stringify(response.content.results);
+    // }
+    // console.log('Response:', response);
+    // console.log('Message:', message);
+
     await db.query(
       `INSERT INTO conversations 
        (user_id, session_id, message, response, model_used, tokens_used)
@@ -429,7 +509,6 @@ class TelegramBotWrapper {
       this.sendResponse(chatId, `🎤 Transkrypcja:\n${transcription.text}`);
       
       msg.text = transcription.text;
-      console.log('msg.text z voice', msg.text);
       await this.processMessage(msg);
 
     } catch (error) {

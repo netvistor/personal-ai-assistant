@@ -6,20 +6,11 @@ const fetch = require("node-fetch");
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const fs = require('fs');
-
-
 const { createFFmpeg, fetchFile } = import('@ffmpeg/ffmpeg');
 
-// let ffmpegInstance;
+// const { search_web } = require('./skills/tavily');
+const functionHandler = require('../skills/function.handler');
 
-// async function initFFmpeg() {
-//   ffmpegInstance = createFFmpeg({ log: true });
-//   await ffmpegInstance.load();
-// }
-
-// initFFmpeg().then(() => {
-//   // Teraz ffmpegInstance jest gotowy do użycia
-// });
 
 class OpenAIService {
   constructor() {
@@ -47,15 +38,13 @@ class OpenAIService {
       },
     };
 
-
     ffmpeg.setFfmpegPath(ffmpegPath);
-    // this.ffmpeg = new FFmpeg();
-    // this.initializeFFmpeg();
   }
 
   async generateResponse(conversationHistory, options = {}) {
     const model = options.model || "gpt-3.5-turbo";
     const maxHistoryLength = options.historyLength || 5;
+    const functionDefinitions = functionHandler.getFunctionDefinitions();
 
     if (!this.supportedModels[model]) {
       throw new Error(`Model ${model} nie jest obsługiwany`);
@@ -81,7 +70,8 @@ class OpenAIService {
           hour12: false,
           timeZone: "Europe/Warsaw",
         }) +
-        `Kontekst: ostatnie ${maxHistoryLength} wiadomości`,
+        `Kontekst: ostatnie ${maxHistoryLength} wiadomości. \n\n`
+        + `Dostępne funkcje: ${JSON.stringify(functionDefinitions)}`,
     };
 
     const messages = [
@@ -90,15 +80,60 @@ class OpenAIService {
     ];
 
     const usedTokens = this.countTokens(messages); // np. 90
-    const maxTokens = modelConfig.maxTokens - usedTokens;
+    const maxTokens = 2000; // modelConfig.maxTokens - usedTokens;
 
     try {
       const completion = await this.client.chat.completions.create({
         model: model,
         messages: messages,
         temperature: modelConfig.temperature,
-        max_tokens: maxTokens,
+        // max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
+        tools: functionDefinitions.map(def => ({
+          type: 'function',
+          function: def
+        })),
+        tool_choice: 'auto',
       });
+
+      console.log('completion:', JSON.stringify(completion));
+      
+      const responseMessage = completion.choices[0].message;
+      const toolCalls = responseMessage.tool_calls;
+
+      if (toolCalls) {
+        for (const toolCall of toolCalls) {
+          const functionName = toolCall.function.name;
+          const functionArgs = JSON.parse(toolCall.function.arguments);
+          
+          const result = await functionHandler.executeFunction(
+            functionName,
+            functionArgs
+          );
+
+          /*
+          messages.push({
+            role: 'tool',
+            name: functionName,
+            content: JSON.stringify(result),
+            tool_call_id: toolCall.id
+          });
+          */
+          console.log("web_search:", result);
+          // messages.push(JSON.stringify(result));
+          // messages.push(result.answer);
+          
+          return {
+            content: result.html, // .answer
+            model: model,
+            tokensUsed: completion.usage.total_tokens,
+            id: completion.id,
+          };
+
+        }
+
+        return this.generateResponse(messages, options);
+      }
 
       return {
         content: completion.choices[0].message.content,
@@ -112,6 +147,106 @@ class OpenAIService {
     }
   }
 
+  async generateResponseNew(conversationHistory, options = {}) {
+    const model = options.model || "gpt-3.5-turbo";
+    const maxHistoryLength = options.historyLength || 5;
+    const functionDefinitions = functionHandler.getFunctionDefinitions();
+
+    if (!this.supportedModels[model]) {
+      throw new Error(`Model ${model} nie jest obsługiwany`);
+    }
+
+    const modelConfig = {
+      ...this.supportedModels[model],
+      ...options,
+    };
+
+    const systemMessage = {
+      role: "system",
+      content:
+        "Jesteś pomocnym asystentem o imieniu Zora. Odpowiadaj w języku użytkownika. Bądź precyzyjny i rzeczowy. Dzisiaj mamy dzień " +
+        new Date().toLocaleDateString("pl-PL", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          weekday: "long",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+          timeZone: "Europe/Warsaw",
+        }) +
+        `Kontekst: ostatnie ${maxHistoryLength} wiadomości. `
+        + `Dostępne funkcje: ${JSON.stringify(functionDefinitions)}`,
+    };
+    // console.log(`Dostępne funkcje: ${JSON.stringify(functionDefinitions)}`);
+
+    const messages = [
+      systemMessage,
+      ...conversationHistory.slice(-maxHistoryLength * 2),
+    ];
+
+    // const usedTokens = this.countTokens(messages); // np. 90
+    const maxTokens = 1000; //modelConfig.maxTokens - usedTokens;
+
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: model,
+        messages: messages,
+        temperature: modelConfig.temperature,
+        max_tokens: maxTokens,
+        // tools: functionDefinitions.map(def => ({
+        //   type: 'function',
+        //   function: def
+        // })),
+        tool_choice: 'auto',
+        temperature: 0.7,
+      });
+
+      console.log('completion:', completion);
+
+      const responseMessage = completion.choices[0].message;
+      // const toolCalls = responseMessage.tool_calls;
+      // console.log("Tool calls:", toolCalls);
+      // console.log("Response message:", responseMessage);
+      // console.log("Response content:", responseMessage.content);
+
+      if (!responseMessage.content) {
+        throw new Error("Invalid response: 'content' is null or undefined.");
+      }
+
+      // if (toolCalls) {
+      //   for (const toolCall of toolCalls) {
+      //     const functionName = toolCall.function.name;
+      //     const functionArgs = JSON.parse(toolCall.function.arguments);
+          
+      //     const result = await functionHandler.executeFunction(
+      //       functionName,
+      //       functionArgs
+      //     );
+
+      //     messages.push({
+      //       role: 'tool',
+      //       name: functionName,
+      //       content: JSON.stringify(result),
+      //       tool_call_id: toolCall.id
+      //     });
+      //   }
+      // }
+
+      return {
+        content: responseMessage.content, // completion.choices[0].message.content,
+        model: model,
+        tokensUsed: completion.usage.total_tokens,
+        id: completion.id,
+      };
+    } catch (error) {
+      console.error("OpenAI API Error:", error);
+      // throw new Error(`Błąd API OpenAI: ${error.message}`);
+      throw new Error(`Błąd API OpenAI`);
+    }
+  }
+
   getSupportedModels() {
     return Object.keys(this.supportedModels);
   }
@@ -119,15 +254,22 @@ class OpenAIService {
   countTokens(messages) {
     let total = 0;
 
-    for (const msg of messages) {
-      total += encode(msg.role).length;
-      total += encode(msg.content).length;
-      total += 4; // narzut tokenów na strukturę wiadomości
+    try {
+      for (const msg of messages) {
+        if (msg.content != null) {
+          total += encode(msg.role).length;
+          total += encode(msg.content).length;
+          total += 4; // narzut tokenów na strukturę wiadomości
+        }
+      }
+
+      total += 2; // narzut tokenów na zakończenie wiadomości
+
+      return total;
+    } catch (error) {
+      // console.error("Błąd podczas liczenia tokenów:", error);
+      return 0;
     }
-
-    total += 2; // narzut tokenów na zakończenie wiadomości
-
-    return total;
   }
 
   async analyzeImage(imageUrl, prompt, options = {}) {
